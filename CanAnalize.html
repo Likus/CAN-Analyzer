@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAN + CSV Analyzer v2.2</title>
+    <script src="chart.umd.min.js"></script>
+    <script src="hammer.min.js"></script>
+    <script src="chartjs-plugin-zoom.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #121212;
+            --bg-secondary: #1e1e1e;
+            --bg-tertiary: #2d2d2d;
+            --text-main: #e0e0e0;
+            --text-dim: #a0a0a0;
+            --accent: #00e5ff;
+            --accent-hover: #00b8cc;
+            --accent-secondary: #ff4081;
+            --border: #333333;
+            --success: #00e676;
+            --warning: #ffab00;
+            --error: #ff5252;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-main);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+        header {
+            background: var(--bg-secondary);
+            padding: 15px 30px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            background: linear-gradient(90deg, var(--accent), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .main-container {
+            display: grid;
+            grid-template-columns: 400px 1fr;
+            gap: 20px;
+            padding: 20px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        .panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            height: fit-content;
+            position: sticky;
+            top: 20px;
+            max-height: calc(100vh - 100px);
+            overflow-y: auto;
+        }
+        .chart-container {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            position: relative;
+            min-height: 600px;
+        }
+        .section-title {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .form-group { display: flex; flex-direction: column; gap: 4px; }
+        label { font-size: 0.82rem; color: var(--text-dim); font-weight: 500; }
+        input[type="text"], input[type="number"], select {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 7px 10px;
+            border-radius: 6px;
+            font-size: 0.88rem;
+            transition: border-color 0.2s;
+        }
+        input:focus, select:focus { outline: none; border-color: var(--accent); }
+        .btn {
+            background: var(--accent);
+            color: var(--bg-primary);
+            border: none;
+            padding: 9px 14px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+            font-size: 0.88rem;
+        }
+        .btn:hover { background: var(--accent-hover); }
+        .btn:active { transform: scale(0.98); }
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+        }
+        .btn-secondary:hover { background: #3a3a3a; }
+        .btn-sm { padding: 6px 10px; font-size: 0.8rem; }
+        .btn-danger { background: var(--error); color: #fff; }
+        .btn-danger:hover { background: #d32f2f; }
+        .byte-selector { display: flex; gap: 6px; flex-wrap: wrap; }
+        .byte-cb { display: none; }
+        .byte-label {
+            width: 34px; height: 34px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; font-weight: 600; font-size: 0.88rem;
+            transition: all 0.2s;
+        }
+        .byte-cb:checked + .byte-label {
+            background: var(--accent); color: var(--bg-primary);
+            border-color: var(--accent);
+            box-shadow: 0 0 10px rgba(0,229,255,0.3);
+        }
+        .byte-label:hover { border-color: var(--accent); }
+        .toast {
+            position: fixed; bottom: 20px; right: 20px;
+            background: var(--error); color: white;
+            padding: 12px 20px; border-radius: 8px; font-weight: 500;
+            opacity: 0; transform: translateY(20px);
+            transition: all 0.3s ease; z-index: 1000; pointer-events: none;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .inline-group { display: flex; gap: 8px; align-items: flex-end; }
+        .inline-group .form-group { flex: 1; }
+        .status-badge {
+            display: inline-block; padding: 2px 8px;
+            border-radius: 12px; font-size: 0.75rem; font-weight: 600;
+        }
+        .status-ok { background: rgba(0,230,118,0.2); color: var(--success); }
+        .status-wait { background: rgba(255,171,0,0.2); color: var(--warning); }
+        .zoom-hint {
+            position: absolute; top: 10px; right: 10px;
+            background: rgba(0,0,0,0.7); color: var(--text-dim);
+            padding: 8px 12px; border-radius: 6px; font-size: 0.78rem;
+            z-index: 10;
+        }
+        .compact-input { width: 70px !important; text-align: center; }
+        .preset-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+        .preset-row select { flex: 1; min-width: 120px; }
+        .preset-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        .divider { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+        .id-list {
+            max-height: 150px;
+            overflow-y: auto;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .id-item {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 3px 8px;
+            font-size: 0.8rem;
+            font-family: 'Consolas', 'Monaco', monospace;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--text-main);
+        }
+        .id-item:hover {
+            background: var(--accent);
+            color: var(--bg-primary);
+            border-color: var(--accent);
+        }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-primary); }
+        ::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #444; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>CAN + CSV Analyzer v2.2</h1>
+    <div>
+        <span class="status-badge status-wait" id="statusCan">CAN: Ожидание</span>
+        <span class="status-badge status-wait" id="statusCsv">CSV: Ожидание</span>
+    </div>
+</header>
+
+<div class="main-container">
+    <div class="panel">
+        <div>
+            <div class="section-title">📂 Загрузка файлов</div>
+            <div class="form-group">
+                <label>CAN-лог</label>
+                <input type="file" id="canFile" accept=".txt,.log,.csv">
+            </div>
+            <div class="form-group">
+                <label>CSV-лог (разделитель ;)</label>
+                <input type="file" id="csvFile" accept=".csv,.txt">
+            </div>
+        </div>
+
+        <hr class="divider">
+
+        <div>
+            <div class="section-title">💾 CAN пресет</div>
+            <div class="preset-row">
+                <select id="presetSelect"><option value="">— выбрать —</option></select>
+                <button class="btn btn-secondary btn-sm" onclick="loadPreset()" title="Применить">▶</button>
+                <button class="btn btn-secondary btn-sm" onclick="savePreset()" title="Сохранить текущие настройки CAN">💾</button>
+                <button class="btn btn-danger btn-sm" onclick="deletePreset()" title="Удалить">✕</button>
+            </div>
+            <div class="preset-actions" style="margin-top:6px;">
+                <button class="btn btn-secondary btn-sm" onclick="exportPresetsXML()">📤 Экспорт XML</button>
+                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('xmlImport').click()">📥 Импорт XML</button>
+                <input type="file" id="xmlImport" accept=".xml" style="display:none">
+            </div>
+        </div>
+
+        <hr class="divider">
+
+        <div>
+            <div class="section-title">📡 CAN Сигнал</div>
+            <div class="form-group">
+                <label>ID сообщения</label>
+                <input type="text" id="canId" placeholder="Например: 1ED" class="auto-rebuild">
+            </div>
+            <div class="form-group">
+                <label>Найденные ID (клик для выбора)</label>
+                <div class="id-list" id="idList">
+                    <span style="color: var(--text-dim); font-size: 0.8rem;">Загрузите CAN-лог</span>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Выбор байт (непрерывный диапазон)</label>
+                <div class="byte-selector" id="byteSelector"></div>
+                <div style="font-size:0.78rem;color:var(--text-dim);margin-top:2px;">
+                    Выбрано: <span id="byteRangeText" style="color:var(--accent);font-weight:bold;">Не выбрано</span>
+                </div>
+            </div>
+            <div class="inline-group">
+                <div class="form-group">
+                    <label>Порядок</label>
+                    <select id="endian" class="auto-rebuild">
+                        <option value="big">Big</option>
+                        <option value="little">Little</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Множитель</label>
+                    <input type="text" id="canMult" value="1" class="compact-input auto-rebuild">
+                </div>
+                <div class="form-group">
+                    <label>Смещение</label>
+                    <input type="text" id="canOffset" value="0" class="compact-input auto-rebuild">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Формула (b0..b7) — если задана, используется вместо стандартного режима</label>
+                <input type="text" id="canFormula" placeholder="(b0*256+b1)*0.25" class="auto-rebuild">
+            </div>
+        </div>
+
+        <hr class="divider">
+
+        <div>
+            <div class="section-title">📊 CSV Данные</div>
+            <div class="form-group">
+                <label>Столбец данных</label>
+                <select id="csvCol" class="auto-rebuild">
+                    <option value="">Загрузите CSV файл</option>
+                </select>
+            </div>
+            <div class="inline-group">
+                <div class="form-group">
+                    <label>Смещение времени</label>
+                    <input type="number" id="csvOffset" value="0" class="auto-rebuild">
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="autoCalculateOffset()" style="flex-shrink:0;margin-bottom:0;height:34px;" title="Авто-смещение по первым точкам">Авто</button>
+            </div>
+            <div class="form-group">
+                <label>Множитель времени CSV</label>
+                <input type="number" id="csvTimeMult" value="1" step="0.001" class="auto-rebuild">
+            </div>
+        </div>
+
+        <button class="btn" onclick="buildPlot(false, true)" style="width:100%;padding:12px;">🚀 Построить график</button>
+    </div>
+
+    <div class="chart-container">
+        <div class="zoom-hint">🖱️ Колесо = зум | Перетаскивание = скролл | Двойной клик = показать весь график</div>
+        <canvas id="mainChart"></canvas>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+    let canData = [];
+    let csvData = [];
+    let csvHeaders = [];
+    let chartInstance = null;
+    let savedZoomX = null;
+    let presets = {};
+    let rebuildTimer = null;
+
+    function parseNum(v) {
+        if (typeof v === 'number') return v;
+        return parseFloat(String(v).trim().replace(',', '.'));
+    }
+
+    function showToast(msg, isError = true) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.style.background = isError ? 'var(--error)' : 'var(--success)';
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    function escapeXml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initByteSelector();
+        document.getElementById('canFile').addEventListener('change', handleCanFile);
+        document.getElementById('csvFile').addEventListener('change', handleCsvFile);
+        document.getElementById('xmlImport').addEventListener('change', importPresetsXML);
+
+        document.querySelectorAll('.auto-rebuild').forEach(el => {
+            el.addEventListener('input', scheduleRebuild);
+            el.addEventListener('change', scheduleRebuild);
+        });
+
+        document.getElementById('mainChart').addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            buildPlot(true, false);
+            showToast('Масштаб сброшен — показан весь график', false);
+        });
+
+        loadPresetsFromStorage();
+    });
+
+    function scheduleRebuild() {
+        clearTimeout(rebuildTimer);
+        rebuildTimer = setTimeout(() => {
+            if (canData.length > 0 || csvData.length > 0) {
+                buildPlot(true, true);
+            }
+        }, 400);
+    }
+
+    function initByteSelector() {
+        const c = document.getElementById('byteSelector');
+        for (let i = 0; i < 8; i++) {
+            const w = document.createElement('div');
+            const cb = document.createElement('input');
+            cb.type = 'checkbox'; cb.className = 'byte-cb';
+            cb.id = `byte_${i}`; cb.value = i;
+            cb.addEventListener('change', handleByteChange);
+            const lbl = document.createElement('label');
+            lbl.className = 'byte-label'; lbl.htmlFor = `byte_${i}`;
+            lbl.textContent = i;
+            w.appendChild(cb); w.appendChild(lbl); c.appendChild(w);
+        }
+    }
+
+    function handleByteChange(e) {
+        const checked = getCheckedBytes();
+        if (checked.length <= 1) { updateByteRangeText(); scheduleRebuild(); return; }
+        const isContinuous = checked.every((b, i, a) => i === 0 || b === a[i-1] + 1);
+        if (!isContinuous) {
+            e.target.checked = !e.target.checked;
+            showToast("Только непрерывный диапазон байт!");
+            return;
+        }
+        updateByteRangeText();
+        scheduleRebuild();
+    }
+
+    function getCheckedBytes() {
+        return Array.from(document.querySelectorAll('.byte-cb:checked')).map(c => parseInt(c.value)).sort((a,b) => a-b);
+    }
+
+    function setCheckedBytes(arr) {
+        document.querySelectorAll('.byte-cb').forEach(cb => {
+            cb.checked = arr.includes(parseInt(cb.value));
+        });
+        updateByteRangeText();
+    }
+
+    function updateByteRangeText() {
+        const ch = getCheckedBytes();
+        const el = document.getElementById('byteRangeText');
+        el.textContent = ch.length === 0 ? 'Не выбрано' : `Байты ${ch[0]}..${ch[ch.length-1]} (${ch.length} шт.)`;
+    }
+
+    function handleCanFile(e) {
+        const f = e.target.files[0]; if (!f) return;
+        const r = new FileReader();
+        r.onload = ev => {
+            parseCanLog(ev.target.result);
+            document.getElementById('statusCan').textContent = 'CAN: Загружен';
+            document.getElementById('statusCan').className = 'status-badge status-ok';
+            savedZoomX = null;
+        };
+        r.readAsText(f);
+    }
+
+    function handleCsvFile(e) {
+        const f = e.target.files[0]; if (!f) return;
+        const r = new FileReader();
+        r.onload = ev => {
+            parseCsvLog(ev.target.result);
+            document.getElementById('statusCsv').textContent = 'CSV: Загружен';
+            document.getElementById('statusCsv').className = 'status-badge status-ok';
+            savedZoomX = null;
+        };
+        r.readAsText(f);
+    }
+
+    function parseCanLog(text) {
+        canData = [];
+        const ids = new Set();
+        for (let line of text.split('\n')) {
+            line = line.trim();
+            if (!line) continue;
+            const p = line.split('\t');
+            if (p.length < 13) continue;
+            const idHex = p[0];
+            if (!/^[0-9A-Fa-f]+$/.test(idHex)) continue;
+            const id = parseInt(idHex, 16);
+            ids.add(id);
+            const bytes = [];
+            for (let i = 3; i <= 10; i++) {
+                bytes.push((i < p.length && /^[0-9A-Fa-f]{2}$/.test(p[i])) ? parseInt(p[i], 16) : 0);
+            }
+            const time = parseFloat(p[12]);
+            if (isNaN(time)) continue;
+            canData.push({ id, bytes, time });
+        }
+        updateIdList(ids);
+        showToast(`CAN: ${canData.length} кадров, ${ids.size} ID`, false);
+    }
+
+    function updateIdList(ids) {
+        const listEl = document.getElementById('idList');
+        listEl.innerHTML = '';
+        if (ids.size === 0) {
+            listEl.innerHTML = '<span style="color: var(--text-dim); font-size: 0.8rem;">ID не найдены</span>';
+            return;
+        }
+        const sortedIds = Array.from(ids).sort((a,b) => a-b);
+        sortedIds.forEach(id => {
+            const item = document.createElement('div');
+            item.className = 'id-item';
+            item.textContent = id.toString(16).toUpperCase();
+            item.title = `ID: ${id} (0x${id.toString(16).toUpperCase()})`;
+            item.addEventListener('click', () => {
+                document.getElementById('canId').value = id.toString(16).toUpperCase();
+                scheduleRebuild();
+            });
+            listEl.appendChild(item);
+        });
+    }
+
+    function parseCsvLog(text) {
+        csvData = [];
+        csvHeaders = [];
+        const lines = text.split('\n');
+        if (lines.length > 0) {
+            const headerLine = lines[0].trim();
+            if (headerLine) {
+                csvHeaders = headerLine.split(';').map(h => h.trim());
+            }
+        }
+        const colSelect = document.getElementById('csvCol');
+        colSelect.innerHTML = '';
+        csvHeaders.forEach((header, idx) => {
+            const opt = document.createElement('option');
+            opt.value = idx;
+            opt.textContent = `${idx}: ${header}`;
+            colSelect.appendChild(opt);
+        });
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i];
+            if (!line.trim()) continue;
+            const p = line.split(';');
+            if (p.length > 0) {
+                const time = parseFloat(p[0]);
+                if (!isNaN(time)) {
+                    csvData.push({ time, values: p.map(v => parseFloat(v)) });
+                }
+            }
+        }
+        showToast(`CSV: ${csvData.length} строк, ${csvHeaders.length} столбцов`, false);
+    }
+
+    function autoCalculateOffset() {
+        if (canData.length === 0 || csvData.length === 0) { showToast("Загрузите оба файла!"); return; }
+        const mult = parseNum(document.getElementById('csvTimeMult').value);
+        if (isNaN(mult)) { showToast("Некорректный множитель времени!"); return; }
+        const offset = Math.round(canData[0].time - csvData[0].time * mult);
+        document.getElementById('csvOffset').value = offset;
+        showToast(`Авто-смещение: ${offset}`, false);
+        scheduleRebuild();
+    }
+
+    function getSettings() {
+        return {
+            canId: document.getElementById('canId').value.trim(),
+            bytes: getCheckedBytes(),
+            endian: document.getElementById('endian').value,
+            canMult: document.getElementById('canMult').value,
+            canOffset: document.getElementById('canOffset').value,
+            canFormula: document.getElementById('canFormula').value
+        };
+    }
+
+    function applySettings(s) {
+        document.getElementById('canId').value = s.canId || '';
+        setCheckedBytes(s.bytes || []);
+        document.getElementById('endian').value = s.endian || 'big';
+        document.getElementById('canMult').value = s.canMult ?? '1';
+        document.getElementById('canOffset').value = s.canOffset ?? '0';
+        document.getElementById('canFormula').value = s.canFormula || '';
+    }
+
+    function savePreset() {
+        const name = prompt("Имя пресета:");
+        if (!name || !name.trim()) return;
+        presets[name.trim()] = getSettings();
+        savePresetsToStorage();
+        refreshPresetList();
+        document.getElementById('presetSelect').value = name.trim();
+        showToast(`Пресет "${name.trim()}" сохранён`, false);
+    }
+
+    function loadPreset() {
+        const name = document.getElementById('presetSelect').value;
+        if (!name || !presets[name]) { showToast("Выберите пресет!"); return; }
+        applySettings(presets[name]);
+        showToast(`Пресет "${name}" загружен`, false);
+        scheduleRebuild();
+    }
+
+    function deletePreset() {
+        const name = document.getElementById('presetSelect').value;
+        if (!name || !presets[name]) { showToast("Выберите пресет!"); return; }
+        if (!confirm(`Удалить пресет "${name}"?`)) return;
+        delete presets[name];
+        savePresetsToStorage();
+        refreshPresetList();
+        showToast(`Пресет "${name}" удалён`, false);
+    }
+
+    function refreshPresetList() {
+        const sel = document.getElementById('presetSelect');
+        sel.innerHTML = '<option value="">— выбрать —</option>';
+        Object.keys(presets).sort().forEach(n => {
+            const o = document.createElement('option');
+            o.value = n; o.textContent = n;
+            sel.appendChild(o);
+        });
+    }
+
+    function savePresetsToStorage() {
+        try { localStorage.setItem('canAnalyzerPresets', JSON.stringify(presets)); } catch(e) {}
+    }
+
+    function loadPresetsFromStorage() {
+        try {
+            const d = localStorage.getItem('canAnalyzerPresets');
+            if (d) presets = JSON.parse(d);
+        } catch(e) {}
+        refreshPresetList();
+    }
+
+    function exportPresetsXML() {
+        if (Object.keys(presets).length === 0) { showToast("Нет пресетов для экспорта!"); return; }
+        let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<presets>\n';
+        for (const [name, s] of Object.entries(presets)) {
+            xml += `  <preset name="${escapeXml(name)}">\n`;
+            xml += `    <canId>${escapeXml(s.canId)}</canId>\n`;
+            xml += `    <bytes>${(s.bytes||[]).join(',')}</bytes>\n`;
+            xml += `    <endian>${s.endian}</endian>\n`;
+            xml += `    <canMult>${escapeXml(String(s.canMult))}</canMult>\n`;
+            xml += `    <canOffset>${escapeXml(String(s.canOffset))}</canOffset>\n`;
+            xml += `    <canFormula>${escapeXml(s.canFormula||'')}</canFormula>\n`;
+            xml += `  </preset>\n`;
+        }
+        xml += '</presets>';
+        const blob = new Blob([xml], { type: 'application/xml' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'analyzer_presets.xml';
+        a.click();
+        showToast("XML экспортирован", false);
+    }
+
+    function importPresetsXML(e) {
+        const f = e.target.files[0]; if (!f) return;
+        const r = new FileReader();
+        r.onload = ev => {
+            try {
+                const doc = new DOMParser().parseFromString(ev.target.result, 'text/xml');
+                const items = doc.querySelectorAll('preset');
+                if (items.length === 0) { showToast("В файле не найдено пресетов!"); return; }
+                let count = 0;
+                items.forEach(p => {
+                    const name = p.getAttribute('name');
+                    if (!name) return;
+                    presets[name] = {
+                        canId: p.querySelector('canId')?.textContent || '',
+                        bytes: (p.querySelector('bytes')?.textContent || '').split(',').filter(Boolean).map(Number),
+                        endian: p.querySelector('endian')?.textContent || 'big',
+                        canMult: p.querySelector('canMult')?.textContent || '1',
+                        canOffset: p.querySelector('canOffset')?.textContent || '0',
+                        canFormula: p.querySelector('canFormula')?.textContent || ''
+                    };
+                    count++;
+                });
+                savePresetsToStorage();
+                refreshPresetList();
+                showToast(`Импортировано ${count} пресетов`, false);
+            } catch(err) { showToast("Ошибка парсинга XML!"); }
+        };
+        r.readAsText(f);
+        e.target.value = '';
+    }
+
+    function getCurrentZoomX() {
+        if (!chartInstance) return null;
+        try {
+            return {
+                xMin: chartInstance.scales.x.min,
+                xMax: chartInstance.scales.x.max
+            };
+        } catch(e) { return null; }
+    }
+
+    function buildPlot(silent, preserveZoom = true) {
+        const hasCan = canData.length > 0;
+        const hasCsv = csvData.length > 0;
+        if (!hasCan && !hasCsv) { if (!silent) showToast("Загрузите хотя бы один файл!"); return; }
+
+        let canPlot = [], csvPlot = [];
+
+        if (hasCan) {
+            const canIdStr = document.getElementById('canId').value.trim();
+            const targetId = parseInt(canIdStr, 16);
+            if (!canIdStr || isNaN(targetId)) { if (!silent) showToast("Укажите корректный ID!"); return; }
+
+            const formula = document.getElementById('canFormula').value.trim();
+            const checkedBytes = getCheckedBytes();
+
+            // Проверка байт нужна ТОЛЬКО если формула НЕ задана
+            if (!formula && checkedBytes.length === 0) {
+                if (!silent) showToast("Выберите хотя бы один байт или задайте формулу!");
+                return;
+            }
+
+            const endian = document.getElementById('endian').value;
+            const mult = parseNum(document.getElementById('canMult').value);
+            const offset = parseNum(document.getElementById('canOffset').value);
+
+            if (isNaN(mult)) { if (!silent) showToast("Некорректный множитель CAN!"); return; }
+            if (isNaN(offset)) { if (!silent) showToast("Некорректное смещение CAN!"); return; }
+
+            // Проверяем корректность формулы один раз ДО цикла
+            let formulaFn = null;
+            if (formula) {
+                try {
+                    formulaFn = new Function('b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', `return ${formula};`);
+                    // Пробуем выполнить с нулями, чтобы выявить синтаксические ошибки сразу
+                    formulaFn(0, 0, 0, 0, 0, 0, 0, 0);
+                } catch(e) {
+                    if (!silent) showToast(`Ошибка в формуле: ${e.message}`);
+                    return;
+                }
+            }
+
+            canPlot = canData.filter(d => d.id === targetId).map(d => {
+                let val = 0;
+                if (formulaFn) {
+                    try {
+                        val = formulaFn(
+                            d.bytes[0] || 0, d.bytes[1] || 0, d.bytes[2] || 0, d.bytes[3] || 0,
+                            d.bytes[4] || 0, d.bytes[5] || 0, d.bytes[6] || 0, d.bytes[7] || 0
+                        );
+                    } catch(e) { val = 0; }
+                } else {
+                    let raw = 0;
+                    const bu = endian === 'big' ? checkedBytes : [...checkedBytes].reverse();
+                    for (let i = 0; i < bu.length; i++) raw = (raw << 8) | (d.bytes[bu[i]] || 0);
+                    val = raw * mult + offset;
+                }
+                return { x: d.time, y: val };
+            });
+        }
+
+        if (hasCsv) {
+            const csvColIdx = parseInt(document.getElementById('csvCol').value);
+            const csvOffset = parseNum(document.getElementById('csvOffset').value) || 0;
+            const csvTimeMult = parseNum(document.getElementById('csvTimeMult').value);
+            if (isNaN(csvTimeMult)) { if (!silent) showToast("Некорректный множитель времени CSV!"); return; }
+            csvPlot = csvData.map(d => {
+                const val = d.values[csvColIdx];
+                return { x: d.time * csvTimeMult + csvOffset, y: isNaN(val) ? 0 : val };
+            });
+        }
+
+        if (preserveZoom) {
+            const currentZoom = getCurrentZoomX();
+            if (currentZoom) savedZoomX = currentZoom;
+        } else {
+            savedZoomX = null;
+        }
+
+        renderChart(canPlot, csvPlot);
+    }
+
+    function renderChart(canPts, csvPts) {
+        const ctx = document.getElementById('mainChart').getContext('2d');
+        if (chartInstance) chartInstance.destroy();
+
+        const datasets = [];
+        if (canPts.length > 0) datasets.push({
+            label: 'CAN', data: canPts,
+            borderColor: '#00e5ff', backgroundColor: 'rgba(0,229,255,0.1)',
+            borderWidth: 2, pointRadius: 0, tension: 0.1, yAxisID: 'y'
+        });
+        if (csvPts.length > 0) datasets.push({
+            label: 'CSV', data: csvPts,
+            borderColor: '#ff4081', backgroundColor: 'rgba(255,64,129,0.1)',
+            borderWidth: 2, pointRadius: 0, tension: 0.1, yAxisID: 'y'
+        });
+
+        chartInstance = new Chart(ctx, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { labels: { color: '#e0e0e0' } },
+                    tooltip: {
+                        backgroundColor: '#1e1e1e', titleColor: '#00e5ff',
+                        bodyColor: '#e0e0e0', borderColor: '#333', borderWidth: 1
+                    },
+                    zoom: {
+                        pan: { enabled: true, mode: 'x' },
+                        zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'linear',
+                        min: savedZoomX ? savedZoomX.xMin : undefined,
+                        max: savedZoomX ? savedZoomX.xMax : undefined,
+                        title: { display: true, text: 'Время', color: '#a0a0a0' },
+                        ticks: { color: '#a0a0a0' },
+                        grid: { color: '#2d2d2d' }
+                    },
+                    y: {
+                        type: 'linear', position: 'left',
+                        title: { display: true, text: 'Значение', color: '#e0e0e0' },
+                        ticks: { color: '#e0e0e0' },
+                        grid: { color: '#2d2d2d' }
+                    }
+                }
+            }
+        });
+    }
+</script>
+</body>
+</html>
