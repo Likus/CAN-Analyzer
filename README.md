@@ -74,7 +74,7 @@
 
 1. Скачайте репозиторий (кнопка **Code → Download ZIP**) или клонируйте его:  
    `git clone https://github.com/Likus/can-analyzer.git`
-2. Откройте файл `CanAnalize.html` в любом современном браузере (Chrome, Firefox, Яндекс).
+2. Откройте файл `index.html` в любом современном браузере (Chrome, Firefox, Яндекс).
 3. Готово! Никакой установки, никакой настройки.
 
 > 💡 **Работает без интернета.** Все зависимости (Chart.js, Hammer.js, chartjs-plugin-zoom) лежат в папке с проектом.
