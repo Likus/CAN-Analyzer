@@ -1,9 +1,25 @@
+<!--
+  CAN Analyzer v2.2
+  
+  Автор: Likus
+  Репозиторий: https://github.com/Likus/can-analyzer
+  Лицензия: MIT License
+  
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+  Автор не несёт ответственности за любой ущерб, возникший в результате
+  использования данного программного обеспечения.
+  
+  Зависимости (распространяются под лицензией MIT):
+    - Chart.js (https://github.com/chartjs/Chart.js)
+    - Hammer.js (https://github.com/hammerjs/hammer.js)
+    - chartjs-plugin-zoom (https://github.com/chartjs/chartjs-plugin-zoom)
+-->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CAN + CSV Analyzer v2.2</title>
+    <title>CAN Analyzer v2.2</title>
     <script src="chart.umd.min.js"></script>
     <script src="hammer.min.js"></script>
     <script src="chartjs-plugin-zoom.min.js"></script>
@@ -189,6 +205,36 @@
             color: var(--bg-primary);
             border-color: var(--accent);
         }
+        /* Переключатель режима времени */
+        .time-mode-switch {
+            display: flex;
+            gap: 4px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 3px;
+        }
+        .time-mode-btn {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+        .time-mode-btn.active {
+            background: var(--accent);
+            color: var(--bg-primary);
+            font-weight: 600;
+        }
+        .time-mode-btn:hover:not(.active) {
+            color: var(--text-main);
+        }
+        .hidden { display: none !important; }
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: var(--bg-primary); }
         ::-webkit-scrollbar-thumb { background: var(--bg-tertiary); border-radius: 4px; }
@@ -198,7 +244,7 @@
 <body>
 
 <header>
-    <h1>CAN + CSV Analyzer v2.2</h1>
+    <h1>CAN Analyzer v2.2</h1>
     <div>
         <span class="status-badge status-wait" id="statusCan">CAN: Ожидание</span>
         <span class="status-badge status-wait" id="statusCsv">CSV: Ожидание</span>
@@ -285,14 +331,46 @@
         <div>
             <div class="section-title">📊 CSV Данные</div>
             <div class="form-group">
-                <label>Столбец данных</label>
+                <label>Столбец значений</label>
                 <select id="csvCol" class="auto-rebuild">
                     <option value="">Загрузите CSV файл</option>
                 </select>
             </div>
+            
+            <!-- Переключатель источника времени -->
+            <div class="form-group">
+                <label>Источник времени</label>
+                <div class="time-mode-switch">
+                    <button type="button" class="time-mode-btn active" data-mode="column" onclick="setTimeMode('column')">Из столбца CSV</button>
+                    <button type="button" class="time-mode-btn" data-mode="manual" onclick="setTimeMode('manual')">Ручная периодичность</button>
+                </div>
+            </div>
+            
+            <!-- Режим: столбец CSV -->
+            <div id="timeModeColumn">
+                <div class="form-group">
+                    <label>Столбец времени</label>
+                    <select id="csvTimeCol" class="auto-rebuild">
+                        <option value="">Загрузите CSV файл</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- Режим: ручная периодичность -->
+            <div id="timeModeManual" class="hidden">
+                <div class="form-group">
+                    <label>Период между точками (мс)</label>
+                    <input type="number" id="csvPeriod" value="10" step="0.1" min="0.001" class="auto-rebuild">
+                </div>
+                <div class="form-group">
+                    <label>Начальное время (мс)</label>
+                    <input type="number" id="csvStartTime" value="0" step="1" class="auto-rebuild">
+                </div>
+            </div>
+            
             <div class="inline-group">
                 <div class="form-group">
-                    <label>Смещение времени</label>
+                    <label>Смещение времени (мс)</label>
                     <input type="number" id="csvOffset" value="0" class="auto-rebuild">
                 </div>
                 <button class="btn btn-secondary btn-sm" onclick="autoCalculateOffset()" style="flex-shrink:0;margin-bottom:0;height:34px;" title="Авто-смещение по первым точкам">Авто</button>
@@ -314,6 +392,25 @@
 
 <div class="toast" id="toast"></div>
 
+<footer style="
+    text-align: center;
+    padding: 10px;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    border-top: 1px solid var(--border);
+    margin-top: 20px;
+">
+    CAN Analyzer v2.2 | 
+    Автор: Likus | 
+    <a href="https://github.com/Likus/can-analyzer" style="color: var(--accent); text-decoration: none;">GitHub</a> | 
+    Лицензия: MIT
+    <br>
+    <span style="color: #666; font-size: 0.7rem;">
+        ПО предоставляется «как есть», без каких-либо гарантий. 
+        Автор не несёт ответственности за результаты использования.
+    </span>
+</footer>
+
 <script>
     let canData = [];
     let csvData = [];
@@ -322,6 +419,7 @@
     let savedZoomX = null;
     let presets = {};
     let rebuildTimer = null;
+    let currentTimeMode = 'column'; // 'column' или 'manual'
 
     function parseNum(v) {
         if (typeof v === 'number') return v;
@@ -415,6 +513,17 @@
         el.textContent = ch.length === 0 ? 'Не выбрано' : `Байты ${ch[0]}..${ch[ch.length-1]} (${ch.length} шт.)`;
     }
 
+    // ===== ПЕРЕКЛЮЧЕНИЕ РЕЖИМА ВРЕМЕНИ =====
+    function setTimeMode(mode) {
+        currentTimeMode = mode;
+        document.querySelectorAll('.time-mode-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+        document.getElementById('timeModeColumn').classList.toggle('hidden', mode !== 'column');
+        document.getElementById('timeModeManual').classList.toggle('hidden', mode !== 'manual');
+        scheduleRebuild();
+    }
+
     function handleCanFile(e) {
         const f = e.target.files[0]; if (!f) return;
         const r = new FileReader();
@@ -494,6 +603,8 @@
                 csvHeaders = headerLine.split(';').map(h => h.trim());
             }
         }
+        
+        // Заполняем список столбцов значений
         const colSelect = document.getElementById('csvCol');
         colSelect.innerHTML = '';
         csvHeaders.forEach((header, idx) => {
@@ -502,15 +613,28 @@
             opt.textContent = `${idx}: ${header}`;
             colSelect.appendChild(opt);
         });
+        
+        // Заполняем список столбцов времени
+        const timeColSelect = document.getElementById('csvTimeCol');
+        timeColSelect.innerHTML = '';
+        csvHeaders.forEach((header, idx) => {
+            const opt = document.createElement('option');
+            opt.value = idx;
+            opt.textContent = `${idx}: ${header}`;
+            timeColSelect.appendChild(opt);
+        });
+        // По умолчанию выбираем первый столбец как время
+        if (csvHeaders.length > 0) {
+            timeColSelect.value = 0;
+        }
+        
+        // Парсим все значения (без привязки ко времени — время определим позже)
         for (let i = 1; i < lines.length; i++) {
             const line = lines[i];
             if (!line.trim()) continue;
             const p = line.split(';');
             if (p.length > 0) {
-                const time = parseFloat(p[0]);
-                if (!isNaN(time)) {
-                    csvData.push({ time, values: p.map(v => parseFloat(v)) });
-                }
+                csvData.push({ values: p.map(v => parseFloat(v)) });
             }
         }
         showToast(`CSV: ${csvData.length} строк, ${csvHeaders.length} столбцов`, false);
@@ -518,9 +642,23 @@
 
     function autoCalculateOffset() {
         if (canData.length === 0 || csvData.length === 0) { showToast("Загрузите оба файла!"); return; }
+        
         const mult = parseNum(document.getElementById('csvTimeMult').value);
         if (isNaN(mult)) { showToast("Некорректный множитель времени!"); return; }
-        const offset = Math.round(canData[0].time - csvData[0].time * mult);
+        
+        let csvFirstTime;
+        if (currentTimeMode === 'column') {
+            const timeColIdx = parseInt(document.getElementById('csvTimeCol').value);
+            const firstVal = csvData[0].values[timeColIdx];
+            if (isNaN(firstVal)) { showToast("Некорректное значение времени в CSV!"); return; }
+            csvFirstTime = firstVal * mult;
+        } else {
+            // В ручном режиме первая точка = startTime
+            const startTime = parseNum(document.getElementById('csvStartTime').value) || 0;
+            csvFirstTime = startTime * mult;
+        }
+        
+        const offset = Math.round(canData[0].time - csvFirstTime);
         document.getElementById('csvOffset').value = offset;
         showToast(`Авто-смещение: ${offset}`, false);
         scheduleRebuild();
@@ -674,7 +812,6 @@
             const formula = document.getElementById('canFormula').value.trim();
             const checkedBytes = getCheckedBytes();
 
-            // Проверка байт нужна ТОЛЬКО если формула НЕ задана
             if (!formula && checkedBytes.length === 0) {
                 if (!silent) showToast("Выберите хотя бы один байт или задайте формулу!");
                 return;
@@ -687,12 +824,10 @@
             if (isNaN(mult)) { if (!silent) showToast("Некорректный множитель CAN!"); return; }
             if (isNaN(offset)) { if (!silent) showToast("Некорректное смещение CAN!"); return; }
 
-            // Проверяем корректность формулы один раз ДО цикла
             let formulaFn = null;
             if (formula) {
                 try {
                     formulaFn = new Function('b0', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', `return ${formula};`);
-                    // Пробуем выполнить с нулями, чтобы выявить синтаксические ошибки сразу
                     formulaFn(0, 0, 0, 0, 0, 0, 0, 0);
                 } catch(e) {
                     if (!silent) showToast(`Ошибка в формуле: ${e.message}`);
@@ -724,10 +859,30 @@
             const csvOffset = parseNum(document.getElementById('csvOffset').value) || 0;
             const csvTimeMult = parseNum(document.getElementById('csvTimeMult').value);
             if (isNaN(csvTimeMult)) { if (!silent) showToast("Некорректный множитель времени CSV!"); return; }
-            csvPlot = csvData.map(d => {
-                const val = d.values[csvColIdx];
-                return { x: d.time * csvTimeMult + csvOffset, y: isNaN(val) ? 0 : val };
-            });
+            
+            if (currentTimeMode === 'column') {
+                // Режим: время из столбца CSV
+                const timeColIdx = parseInt(document.getElementById('csvTimeCol').value);
+                if (isNaN(timeColIdx)) { if (!silent) showToast("Выберите столбец времени!"); return; }
+                
+                csvPlot = csvData.map((d, idx) => {
+                    const time = d.values[timeColIdx];
+                    const val = d.values[csvColIdx];
+                    if (isNaN(time)) return null;
+                    return { x: time * csvTimeMult + csvOffset, y: isNaN(val) ? 0 : val };
+                }).filter(p => p !== null);
+            } else {
+                // Режим: ручная периодичность
+                const period = parseNum(document.getElementById('csvPeriod').value);
+                const startTime = parseNum(document.getElementById('csvStartTime').value) || 0;
+                if (isNaN(period) || period <= 0) { if (!silent) showToast("Период должен быть больше 0!"); return; }
+                
+                csvPlot = csvData.map((d, idx) => {
+                    const time = startTime + idx * period;
+                    const val = d.values[csvColIdx];
+                    return { x: time * csvTimeMult + csvOffset, y: isNaN(val) ? 0 : val };
+                });
+            }
         }
 
         if (preserveZoom) {
